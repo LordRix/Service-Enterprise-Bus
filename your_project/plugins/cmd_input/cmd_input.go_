@@ -1,0 +1,43 @@
+package cmd_input
+
+import (
+	"flag"
+	"fmt"
+	"your_project/interfaces"
+	"your_project/registry"
+
+	"github.com/rs/zerolog/log"
+)
+
+// CmdInput implements InputPlugin for command-line arguments.
+type CmdInput struct {
+	input string
+}
+
+// NewCmdInput creates a new CmdInput instance.
+func NewCmdInput() interfaces.InputPlugin {
+	return &CmdInput{}
+}
+
+// Configure sets up the CmdInput with the given configuration.
+func (ci *CmdInput) Configure(config map[string]string) {
+	ci.input = config["DEFAULT"]
+}
+
+// GetInput reads the input from command-line arguments.
+func (ci *CmdInput) GetInput() (string, error) {
+	input := flag.String("input", ci.input, "Input string to be mapped")
+	flag.Parse()
+	if *input == "" {
+		err := fmt.Errorf("no input string provided")
+		log.Error().Err(err).Msg("Failed to get input from command-line")
+		return "", err
+	}
+
+	log.Info().Str("input", *input).Msg("Input received from command-line")
+	return *input, nil
+}
+
+func init() {
+	registry.RegisterInputPlugin("cmd", NewCmdInput)
+}

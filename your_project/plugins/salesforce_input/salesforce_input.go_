@@ -1,0 +1,70 @@
+package salesforce_input
+
+import (
+    "context"
+    "time"
+    "google.golang.org/grpc"
+    "your_project/interfaces"
+    "your_project/registry"
+    pb "your_project/plugins/salesforce_input/proto"
+    "github.com/rs/zerolog/log"
+)
+
+// SalesforceInput implements InputPlugin for Salesforce platform events.
+type SalesforceInput struct {
+    grpcServer  string
+    conn        *grpc.ClientConn
+    client      pb.SalesforceClient
+    inputChan   chan string
+}
+
+// NewSalesforceInput creates a new SalesforceInput instance.
+func NewSalesforceInput() interfaces.InputPlugin {
+    return &SalesforceInput{
+        inputChan: make(chan string),
+    }
+}
+
+// Configure sets up the SalesforceInput with the given configuration.
+func (si *SalesforceInput) Configure(config map[string]string) {
+    grpcServer := config["GRPC_SERVER"]
+    si.grpcServer = grpcServer
+    conn, err := grpc.Dial(grpcServer, grpc.WithInsecure())
+    if err != nil {
+        log.Fatal().Err(err).Str("grpc_server", grpcServer).Msg("Failed to connect to gRPC server")
+    }
+    si.conn = conn
+    si.client = pb.NewSalesforceClient(conn)
+
+    go si.startListening()
+}
+
+// startListening starts listening to Salesforce platform events.
+func (si *SalesforceInput) startListening() {
+    ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+    defer cancel()
+
+    stream, err := si.client.SubscribeToEvents(ctx, &pb.EventRequest{})
+    if err != nil {
+        log.Fatal().Err(err).Msg("Failed to subscribe to Salesforce events")
+    }
+
+    for {
+        event, err := stream.Recv()
+        if err != nil {
+            log.Error().Err(err).Msg("Failed to receive Salesforce event")
+            continue
+        }
+        si.inputChan <- event.GetEventData()
+        log.Info().Str("event_data", event.GetEventData()).Msg("Received Salesforce event")
+    }
+}
+
+// GetInput waits for new Salesforce events.
+func (si *SalesforceInput) GetInput() (string, error) {
+    return <-si.inputChan, nil
+}
+
+func init() {
+    registry.RegisterInputPlugin("salesforce", NewSalesforceInput)
+}
